@@ -5,7 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Alignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aivisionscanner.camera.CameraPreview
 import com.example.aivisionscanner.camera.CameraStatus
 import com.example.aivisionscanner.ui.header.SystemHeader
+import com.example.aivisionscanner.ui.overlay.DetectionOverlay
 import com.example.aivisionscanner.ui.theme.HudBackground
 import com.example.aivisionscanner.ui.theme.HudText
 
@@ -70,7 +71,14 @@ fun CameraScreen(viewModel: CameraViewModel = viewModel()) {
             CameraPreview(
                 modifier = Modifier.fillMaxSize(),
                 onStatusChanged = viewModel::onCameraStatusChanged,
-                onFrameAnalyzed = viewModel::onFrameAnalyzed
+                onFrameAnalyzed = viewModel::onFrameAnalyzed,
+                onBitmap = viewModel::onBitmapAnalyzed
+            )
+            DetectionOverlay(
+                detections = state.detections,
+                frameWidth = state.frameWidth,
+                frameHeight = state.frameHeight,
+                modifier = Modifier.fillMaxSize()
             )
         } else {
             PermissionRequiredMessage(
