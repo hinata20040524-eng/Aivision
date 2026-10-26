@@ -46,7 +46,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update { it.copy(modelStatus = ModelStatus.READY) }
         } catch (e: Exception) {
             Log.e(TAG, "Gagal memuat model", e)
-            _uiState.update { it.copy(modelStatus = ModelStatus.ERROR) }
+            _uiState.update {
+                it.copy(
+                    modelStatus = ModelStatus.ERROR,
+                    errorMessage = "Model gagal dimuat: ${e.javaClass.simpleName}: ${e.message}"
+                )
+            }
         }
     }
 
@@ -60,6 +65,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             currentEngine.detect(bitmap)
         } catch (e: Exception) {
             Log.e(TAG, "Gagal menjalankan deteksi", e)
+            _uiState.update {
+                it.copy(
+                    detections = emptyList(),
+                    errorMessage = "Deteksi gagal: ${e.javaClass.simpleName}: ${e.message}"
+                )
+            }
             return
         }
         _uiState.update {
@@ -67,7 +78,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 detections = result.detections,
                 frameWidth = result.frameWidth,
                 frameHeight = result.frameHeight,
-                inferenceMs = result.inferenceMs
+                inferenceMs = result.inferenceMs,
+                errorMessage = null
             )
         }
     }
