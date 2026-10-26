@@ -14,7 +14,7 @@ private const val TAG = "ObjectDetectionEngine"
 
 /**
  * Menjalankan model YOLOv8. Mendukung input NHWC [1, H, W, 3] dan NCHW [1, 3, H, W].
- * Output format [1, 84, N] atau [1, N, 84].
+ * Output format [1, 84, N] atau [1, N, 84]. Koordinat bisa piksel atau ternormalisasi (0..1).
  * Dipanggil dari thread analisis kamera, bukan dari UI thread.
  */
 class ObjectDetectionEngine(private val interpreter: Interpreter) {
@@ -67,14 +67,12 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
 
         inputBuffer.rewind()
         if (inputChannelsFirst) {
-            // NCHW: seluruh channel R, lalu G, lalu B
             for (shift in CHANNEL_SHIFTS) {
                 for (p in pixels) {
                     inputBuffer.putFloat(((p shr shift) and 0xFF) / 255f)
                 }
             }
         } else {
-            // NHWC: R, G, B bergantian per piksel
             for (p in pixels) {
                 inputBuffer.putFloat(((p shr 16) and 0xFF) / 255f)
                 inputBuffer.putFloat(((p shr 8) and 0xFF) / 255f)
@@ -88,8 +86,19 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
         outputBuffer.rewind()
         val output = outputBuffer.asFloatBuffer()
 
-        val sx = frame.width.toFloat() / inputW
-        val sy = frame.height.toFloat() / inputH
+        // Deteksi apakah koordinat ternormalisasi (0..1) atau dalam piksel model
+        var maxCoord = 0f
+        for (i in 0 until numAnchors) {
+            maxCoord = max(maxCoord, output.get(index(0, i)))
+            maxCoord = max(maxCoord, output.get(index(1, i)))
+            maxCoord = max(maxCoord, output.get(index(2, i)))
+            maxCoord = max(maxCoord, output.get(index(3, i)))
+        }
+        val normalized = maxCoord <= 1.5f
+
+        // Faktor konversi koordinat model ke piksel frame
+        val mx = if (normalized) frame.width.toFloat() else frame.width.toFloat() / inputW
+        val my = if (normalized) frame.height.toFloat() else frame.height.toFloat() / inputH
         val maxW = frame.width.toFloat()
         val maxH = frame.height.toFloat()
         val candidates = ArrayList<Detection>()
@@ -116,10 +125,10 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
                     classId = bestClass,
                     label = CocoLabels.nameOf(bestClass),
                     score = bestScore,
-                    left = ((cx - w / 2f) * sx).coerceIn(0f, maxW),
-                    top = ((cy - h / 2f) * sy).coerceIn(0f, maxH),
-                    right = ((cx + w / 2f) * sx).coerceIn(0f, maxW),
-                    bottom = ((cy + h / 2f) * sy).coerceIn(0f, maxH)
+                    left = ((cx - w / 2f) * mx).coerceIn(0f, maxW),
+                    top = ((cy - h / 2f) * my).coerceIn(0f, maxH),
+                    right = ((cx + w / 2f) * mx).coerceIn(0f, maxW),
+                    bottom = ((cy + h / 2f) * my).coerceIn(0f, maxH)
                 )
             )
         }
