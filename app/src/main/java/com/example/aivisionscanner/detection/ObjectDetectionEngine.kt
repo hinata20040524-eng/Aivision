@@ -2,6 +2,7 @@ package com.example.aivisionscanner.detection
 
 import android.graphics.Bitmap
 import android.os.SystemClock
+import android.util.Log
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
@@ -9,14 +10,18 @@ import java.nio.ByteOrder
 import kotlin.math.max
 import kotlin.math.min
 
+private const val TAG = "ObjectDetectionEngine"
+
 /**
- * Menjalankan model YOLOv8 (format output [1, 84, N] atau [1, N, 84]).
+ * Menjalankan model YOLOv8. Mendukung input NHWC [1, H, W, 3] dan NCHW [1, 3, H, W].
+ * Output format [1, 84, N] atau [1, N, 84].
  * Dipanggil dari thread analisis kamera, bukan dari UI thread.
  */
 class ObjectDetectionEngine(private val interpreter: Interpreter) {
 
     private val inputH: Int
     private val inputW: Int
+    private val inputChannelsFirst: Boolean
     private val channelsFirst: Boolean
     private val numChannels: Int
     private val numAnchors: Int
@@ -30,8 +35,14 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
         val inTensor = interpreter.getInputTensor(0)
         require(inTensor.dataType() == DataType.FLOAT32) { "Model harus berformat float32" }
         val inShape = inTensor.shape()
-        inputH = inShape[1]
-        inputW = inShape[2]
+        inputChannelsFirst = inShape[1] == 3
+        if (inputChannelsFirst) {
+            inputH = inShape[2]
+            inputW = inShape[3]
+        } else {
+            inputH = inShape[1]
+            inputW = inShape[2]
+        }
 
         val outShape = interpreter.getOutputTensor(0).shape()
         channelsFirst = outShape[1] < outShape[2]
@@ -39,6 +50,8 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
         numAnchors = if (channelsFirst) outShape[2] else outShape[1]
         numClasses = numChannels - 4
         require(numClasses > 0) { "Format output model tidak dikenali: ${outShape.joinToString()}" }
+
+        Log.i(TAG, "input=${inShape.joinToString()} output=${outShape.joinToString()}")
 
         inputBuffer = ByteBuffer.allocateDirect(4 * inputW * inputH * 3).order(ByteOrder.nativeOrder())
         outputBuffer = ByteBuffer.allocateDirect(4 * numChannels * numAnchors).order(ByteOrder.nativeOrder())
@@ -53,10 +66,20 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
         if (scaled !== frame) scaled.recycle()
 
         inputBuffer.rewind()
-        for (p in pixels) {
-            inputBuffer.putFloat(((p shr 16) and 0xFF) / 255f)
-            inputBuffer.putFloat(((p shr 8) and 0xFF) / 255f)
-            inputBuffer.putFloat((p and 0xFF) / 255f)
+        if (inputChannelsFirst) {
+            // NCHW: seluruh channel R, lalu G, lalu B
+            for (shift in CHANNEL_SHIFTS) {
+                for (p in pixels) {
+                    inputBuffer.putFloat(((p shr shift) and 0xFF) / 255f)
+                }
+            }
+        } else {
+            // NHWC: R, G, B bergantian per piksel
+            for (p in pixels) {
+                inputBuffer.putFloat(((p shr 16) and 0xFF) / 255f)
+                inputBuffer.putFloat(((p shr 8) and 0xFF) / 255f)
+                inputBuffer.putFloat((p and 0xFF) / 255f)
+            }
         }
         inputBuffer.rewind()
 
@@ -137,5 +160,6 @@ class ObjectDetectionEngine(private val interpreter: Interpreter) {
         const val CONF_THRESHOLD = 0.45f
         const val IOU_THRESHOLD = 0.45f
         const val MAX_DETECTIONS = 50
+        private val CHANNEL_SHIFTS = intArrayOf(16, 8, 0)
     }
 }
